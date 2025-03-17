@@ -5,8 +5,8 @@ import requests
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Переменные окружения
-BOT_TOKEN = os.getenv("BOT_TOKEN", "ВАШ_ТОКЕН_БОТА")
-NP_API_KEY = os.getenv("NP_API_KEY", "ВАШ_API_КЛЮЧ_НОВОЙ_ПОЧТЫ")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0")
+NP_API_KEY = os.getenv("NP_API_KEY", "cb589626abe2488ac0bd2c750419a496")
 GROUP_FROM = -1002343109699  # Группа, откуда получать заявки
 GROUP_TTN = -1002684087753  # Группа, куда отправлять ТТН
 
