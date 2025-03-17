@@ -20,8 +20,8 @@ SENDER_WAREHOUSE = "1"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Хранение накладных
-created_ttns = []
-sent_ttns = []
+pending_ttns = []  # Накладные, созданные, но не отправленные
+in_transit_ttns = []  # Накладные, которые уже в пути
 
 def create_np_waybill(data):
     url = "https://api.novaposhta.ua/v2.0/json/"
@@ -44,22 +44,19 @@ def create_np_waybill(data):
             "ServiceType": "WarehouseWarehouse",
             "PaymentMethod": "Cash",
             "PayerType": "Recipient",
-            "Cost": str(data["amount"]),
+            "Cost": data["amount"],
             "Description": "Святкова скарбничка",
-            "AfterpaymentOnGoodsCost": str(data["transfer"])
+            "AfterpaymentOnGoodsCost": data["transfer"]
         }
     }
     response = requests.post(url, json=payload)
-    response_data = response.json()
-    if response_data.get("success"):
-        return response_data["data"][0]["IntDocNumber"]
-    return None
+    return response.json()
 
 @bot.message_handler(commands=['start'])
 def start_message(message):
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("📦 Неотправленные накладные", callback_data="pending"))
-    markup.add(InlineKeyboardButton("🚚 Накладные в пути", callback_data="in_transit"))
+    markup.add(InlineKeyboardButton("🚚 Отправленные накладные", callback_data="in_transit"))
     bot.send_message(message.chat.id, "Выберите действие:", reply_markup=markup)
 
 @bot.message_handler(func=lambda message: message.chat.id == GROUP_FROM)
@@ -71,12 +68,13 @@ def handle_order(message):
             "phone": lines[1].split(": ")[1],
             "city": lines[2].split(": ")[1],
             "warehouse": lines[3].split(": ")[1],
-            "amount": float(lines[4].split(": ")[1]),
-            "transfer": float(lines[5].split(": ")[1])
+            "amount": lines[4].split(": ")[1],
+            "transfer": lines[5].split(": ")[1]
         }
-        ttn = create_np_waybill(order_data)
-        if ttn:
-            created_ttns.append({"ttn": ttn, "amount": order_data["amount"]})
+        response = create_np_waybill(order_data)
+        if response.get("success"):
+            ttn = response["data"][0]["IntDocNumber"]
+            pending_ttns.append({"ttn": ttn, "amount": order_data["amount"]})
             bot.send_message(GROUP_TTN, f"🚛 Создана ТТН: {ttn}\nСумма: {order_data['amount']} грн")
         else:
             bot.send_message(GROUP_TTN, "❌ Ошибка создания ТТН")
@@ -85,20 +83,30 @@ def handle_order(message):
 
 @bot.callback_query_handler(func=lambda call: call.data == "pending")
 def show_pending_ttns(call):
-    if not created_ttns:
+    if not pending_ttns:
         bot.send_message(call.message.chat.id, "📦 Нет неотправленных накладных")
     else:
-        total = sum(x["amount"] for x in created_ttns)
-        ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in created_ttns])
+        total = sum(float(x["amount"]) for x in pending_ttns)
+        ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in pending_ttns])
         bot.send_message(call.message.chat.id, f"📌 Неотправленные ТТН:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
 
 @bot.callback_query_handler(func=lambda call: call.data == "in_transit")
-def show_sent_ttns(call):
-    if not sent_ttns:
+def show_in_transit_ttns(call):
+    if not in_transit_ttns:
         bot.send_message(call.message.chat.id, "🚚 Нет отправленных накладных")
     else:
-        total = sum(x["amount"] for x in sent_ttns)
-        ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in sent_ttns])
-        bot.send_message(call.message.chat.id, f"🚀 В пути:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
+        total = sum(float(x["amount"]) for x in in_transit_ttns)
+        ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in in_transit_ttns])
+        bot.send_message(call.message.chat.id, f"🚀 Отправленные накладные:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
+
+@bot.message_handler(commands=['send'])
+def send_ttn(message):
+    if not pending_ttns:
+        bot.send_message(message.chat.id, "❌ Нет накладных для отправки")
+        return
+    
+    sent_ttn = pending_ttns.pop(0)  # Берем первую накладную и перемещаем в "отправленные"
+    in_transit_ttns.append(sent_ttn)
+    bot.send_message(GROUP_TTN, f"✅ ТТН {sent_ttn['ttn']} отправлена! Теперь она в пути.")
 
 bot.polling(none_stop=True)
