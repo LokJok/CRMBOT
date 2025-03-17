@@ -52,6 +52,15 @@ def create_np_waybill(data):
     response = requests.post(url, json=payload)
     return response.json()
 
+# Обработчик /start
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    markup = InlineKeyboardMarkup()
+    button1 = InlineKeyboardButton("Накладные, не отправленные", callback_data="pending")
+    button2 = InlineKeyboardButton("Накладные в пути", callback_data="in_transit")
+    markup.add(button1, button2)
+    bot.send_message(message.chat.id, "Привет! Выберите действие:", reply_markup=markup)
+
 @bot.message_handler(func=lambda message: message.chat.id == GROUP_FROM)
 def handle_order(message):
     try:
@@ -91,8 +100,12 @@ def show_sent_ttns(message):
         ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in sent_ttns])
         bot.send_message(message.chat.id, f"🚀 В пути:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "Привет! Я бот. Напиши команду, чтобы начать!")
+# Обработчик нажатий на кнопки
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    if call.data == "pending":
+        show_pending_ttns(call.message)
+    elif call.data == "in_transit":
+        show_sent_ttns(call.message)
 
 bot.polling(none_stop=True)
