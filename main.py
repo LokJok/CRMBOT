@@ -1,102 +1,88 @@
-import os
-import json
 import telebot
 import requests
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import json
 
-# Переменные окружения
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0")
-NP_API_KEY = os.getenv("NP_API_KEY", "cb589626abe2488ac0bd2c750419a496")
+# Укажите ваш API-ключ от Новой Почты
+NOVA_POSHTA_API_KEY = "cb589626abe2488ac0bd2c750419a496"
+# Укажите ваш токен бота
+TELEGRAM_BOT_TOKEN = "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0"
 
-# Данные отправителя
-SENDER_NAME = "Курочка Давид Ігорович"
-SENDER_PHONE = "+380931168786"
-SENDER_CITY = "м. Фастів"
-SENDER_ADDRESS = "вул Ярослава мудрого 51"
-SENDER_WAREHOUSE = "1"
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
-bot = telebot.TeleBot(BOT_TOKEN)
-
-# Хранение накладных
-created_ttns = []
-sent_ttns = []
-
-def create_np_waybill(data):
+# Функция для создания ТТН через API Новой Почты
+def create_ttn(data):
     url = "https://api.novaposhta.ua/v2.0/json/"
     payload = {
-        "apiKey": NP_API_KEY,
+        "apiKey": NOVA_POSHTA_API_KEY,
         "modelName": "InternetDocument",
         "calledMethod": "save",
         "methodProperties": {
-            "Sender": SENDER_NAME,
-            "SenderPhone": SENDER_PHONE,
-            "CitySender": SENDER_CITY,
-            "SenderAddress": SENDER_ADDRESS,
-            "SenderWarehouse": SENDER_WAREHOUSE,
-            "Recipient": data["name"],
-            "RecipientPhone": data["phone"],
-            "CityRecipient": data["city"],
-            "RecipientWarehouse": data["warehouse"],
+            "Sender": data["sender_name"],
+            "ContactSender": data["sender_name"],
+            "SendersPhone": data["sender_phone"],
+            "CitySender": data["sender_city"],
+            "SenderAddress": data["sender_branch"],
+            
+            "Recipient": data["recipient_name"],
+            "ContactRecipient": data["recipient_name"],
+            "RecipientsPhone": data["recipient_phone"],
+            "CityRecipient": data["recipient_city"],
+            "RecipientAddress": data["recipient_branch"],
+            
             "CargoType": "Parcel",
-            "Weight": "0.5",
+            "SeatsAmount": data["seats"],
+            "Weight": data["weight"],
             "ServiceType": "WarehouseWarehouse",
             "PaymentMethod": "Cash",
-            "PayerType": "Recipient",
-            "Cost": data["amount"],
-            "Description": "Святкова скарбничка",
-            "AfterpaymentOnGoodsCost": data["transfer"]
+            "PayerType": "Recipient" if data["payer"] == "Получатель" else "Sender",
+            "Cost": data["cost"],
+            "AfterpaymentOnGoodsCost": data["cash_on_delivery"],
+            "Description": "Товар"
         }
     }
     response = requests.post(url, json=payload)
-    response_data = response.json()
-    print("Ответ API Новой Почты:", response_data)  # Логирование ответа
-    return response_data
+    return response.json()
 
-@bot.message_handler(commands=['start'])
-def start_message(message):
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("📦 Неотправленные накладные", callback_data="pending"))
-    markup.add(InlineKeyboardButton("🚚 Отправленные накладные", callback_data="in_transit"))
-    bot.send_message(message.chat.id, "Выберите действие:", reply_markup=markup)
-
-@bot.message_handler(func=lambda message: message.chat.type == "private")
-def handle_order(message):
+# Функция обработки заявки
+def parse_request(message):
+    lines = message.text.split('\n')
     try:
-        lines = message.text.split('\n')
-        order_data = {
-            "name": lines[0].split(": ")[1],
-            "phone": lines[1].split(": ")[1],
-            "city": lines[2].split(": ")[1],
-            "warehouse": lines[3].split(": ")[1],
-            "amount": lines[4].split(": ")[1],
-            "transfer": lines[5].split(": ")[1]
+        data = {
+            "sender_name": lines[1].split(": ")[1],
+            "sender_phone": lines[2].split(": ")[1],
+            "sender_city": lines[3].split(": ")[1],
+            "sender_branch": lines[4].split(": ")[1],
+            
+            "recipient_name": lines[6].split(": ")[1],
+            "recipient_phone": lines[7].split(": ")[1],
+            "recipient_city": lines[8].split(": ")[1],
+            "recipient_branch": lines[9].split(": ")[1],
+            
+            "seats": lines[11].split(": ")[1],
+            "weight": lines[12].split(": ")[1],
+            "cost": lines[13].split(": ")[1],
+            "cash_on_delivery": lines[14].split(": ")[1],
+            
+            "payer": lines[16].split(": ")[1]
         }
-        response = create_np_waybill(order_data)
-        if response.get("success"):
-            ttn = response["data"][0]["IntDocNumber"]
-            created_ttns.append({"ttn": ttn, "amount": order_data["amount"]})
-            bot.send_message(message.chat.id, f"🚛 Создана ТТН: {ttn}\nСумма: {order_data['amount']} грн")
-        else:
-            bot.send_message(message.chat.id, f"❌ Ошибка создания ТТН: {response.get('errors')}")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка обработки: {str(e)}")
+        return data
+    except IndexError:
+        return None
 
-@bot.callback_query_handler(func=lambda call: call.data == "pending")
-def show_pending_ttns(call):
-    if not created_ttns:
-        bot.send_message(call.message.chat.id, "📦 Нет неотправленных накладных")
+# Обработчик сообщений с заявками
+@bot.message_handler(func=lambda message: "📦 Новая заявка" in message.text)
+def handle_request(message):
+    data = parse_request(message)
+    if not data:
+        bot.reply_to(message, "⚠ Ошибка! Некорректный формат заявки. Проверьте правильность данных.")
+        return
+    
+    response = create_ttn(data)
+    if response.get("success"):
+        ttn_number = response["data"][0]["IntDocNumber"]
+        bot.reply_to(message, f"✅ ТТН успешно создана! Номер: {ttn_number}")
     else:
-        total = sum(float(x["amount"]) for x in created_ttns)
-        ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in created_ttns])
-        bot.send_message(call.message.chat.id, f"📌 Неотправленные ТТН:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
-
-@bot.callback_query_handler(func=lambda call: call.data == "in_transit")
-def show_sent_ttns(call):
-    if not sent_ttns:
-        bot.send_message(call.message.chat.id, "🚚 Нет отправленных накладных")
-    else:
-        total = sum(float(x["amount"]) for x in sent_ttns)
-        ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in sent_ttns])
-        bot.send_message(call.message.chat.id, f"🚀 В пути:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
+        errors = "\n".join(response.get("errors", ["Неизвестная ошибка"]))
+        bot.reply_to(message, f"❌ Ошибка создания ТТН:\n{errors}")
 
 bot.polling(none_stop=True)
