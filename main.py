@@ -3,7 +3,7 @@ import requests
 
 # Ваши настройки бота и API
 API_TOKEN = 'cb589626abe2488ac0bd2c750419a496'
-bot = telebot.TeleBot(7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0)
+bot = telebot.TeleBot("7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0")
 
 # Функция для обработки запросов на создание ТТН
 def create_tracking_number(message):
