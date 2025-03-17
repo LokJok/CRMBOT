@@ -2,8 +2,8 @@ import telebot
 import requests
 
 # Ваши настройки бота и API
-API_TOKEN = "cb589626abe2488ac0bd2c750419a496"
-bot = telebot.TeleBot = "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0"
+API_TOKEN = "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0"
+bot = telebot.TeleBot(cb589626abe2488ac0bd2c750419a496)
 
 # Функция для обработки запросов на создание ТТН
 def create_tracking_number(message):
@@ -25,7 +25,8 @@ def create_tracking_number(message):
         }
 
         # Пример запроса на создание ТТН (замените на реальный API)
-        response = requests.post('cb589626abe2488ac0bd2c750419a496', data=data)
+        response = requests.post('https://api.novaposhta.ua/v2.0/json/
+', data=data)
 
         # Проверка успешности запроса
         if response.status_code == 200:
