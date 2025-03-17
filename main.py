@@ -9,12 +9,12 @@ from telebot.storage import StateMemoryStorage
 NOVA_POSHTA_API_KEY = "cb589626abe2488ac0bd2c750419a496"
 TELEGRAM_BOT_TOKEN = "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0"
 
-# Initialize bot with state storage
+# Инициализация бота с хранилищем состояния
 state_storage = StateMemoryStorage()
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, state_storage=state_storage)
 
 def get_city_ref(city_name):
-    """Get city reference by name"""
+    """Получить ссылку на город по имени"""
     payload = {
         "apiKey": NOVA_POSHTA_API_KEY,
         "modelName": "Address",
@@ -31,7 +31,7 @@ def get_city_ref(city_name):
     return None
 
 def get_warehouse_ref(city_ref, warehouse_number):
-    """Get warehouse reference by city and number"""
+    """Получить ссылку на отделение по городу и номеру"""
     payload = {
         "apiKey": NOVA_POSHTA_API_KEY,
         "modelName": "Address",
@@ -52,7 +52,7 @@ def get_warehouse_ref(city_ref, warehouse_number):
     return None
 
 def get_counterparty_ref(phone, counterparty_property):
-    """Get counterparty reference by phone"""
+    """Получить ссылку на контрагента по телефону"""
     payload = {
         "apiKey": NOVA_POSHTA_API_KEY,
         "modelName": "Counterparty",
@@ -69,10 +69,10 @@ def get_counterparty_ref(phone, counterparty_property):
     return None
 
 def parse_ttn_data(message_text):
-    """Parse TTN data from message text"""
+    """Парсинг данных ТТН из текста сообщения"""
     data = {}
     
-    # Regular expressions for data extraction
+    # Регулярные выражения для извлечения данных
     patterns = {
         'sender_name': r'Отправитель:\s*(.+)',
         'sender_phone': r'Телефон отправителя:\s*(\+?\d+)',
@@ -97,7 +97,7 @@ def parse_ttn_data(message_text):
     return data
 
 def create_ttn(data):
-    # Get reference IDs
+    # Получить ссылки на города и отделения
     sender_city_ref = get_city_ref(data["sender_city"])
     recipient_city_ref = get_city_ref(data["recipient_city"])
     
@@ -182,10 +182,10 @@ def start(message):
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     try:
-        # Parse message text to extract data
+        # Парсим текст сообщения для извлечения данных
         data = parse_ttn_data(message.text)
         
-        # Validate required fields
+        # Проверка обязательных полей
         required_fields = [
             "sender_name", "sender_phone", "sender_city", "sender_branch",
             "recipient_name", "recipient_phone", "recipient_city", "recipient_branch",
@@ -216,7 +216,7 @@ def handle_message(message):
             )
             return
 
-        # Create TTN
+        # Создание ТТН
         ttn = create_ttn(data)
         if ttn.get('success'):
             success_message = f"""
@@ -225,45 +225,17 @@ def handle_message(message):
 📝 Номер ТТН: {ttn['data'][0]['IntDocNumber']}
 📦 Отправитель: {data['sender_name']}
 📍 Город отправителя: {data['sender_city']}
-🏢 Отделение: {data['sender_branch']}
-
+📍 Отделение отправителя: {data['sender_branch']}
 📦 Получатель: {data['recipient_name']}
 📍 Город получателя: {data['recipient_city']}
-🏢 Отделение: {data['recipient_branch']}
-
-📦 Мест: {data['seats']}
-⚖️ Вес: {data['weight']} кг
-💰 Стоимость: {data['cost']} грн
+📍 Отделение получателя: {data['recipient_branch']}
+🔢 Стоимость: {data['cost']} грн
 """
+
             bot.send_message(message.chat.id, success_message)
         else:
-            errors = ttn.get('errors', ['Неизвестная ошибка'])
-            bot.send_message(
-                message.chat.id,
-                f"❌ Ошибка создания ТТН:\n" + "\n".join(f"- {error}" for error in errors)
-            )
-    
+            bot.send_message(message.chat.id, "❌ Произошла ошибка при создании ТТН.")
     except Exception as e:
-        bot.send_message(
-            message.chat.id,
-            f"❌ Произошла ошибка при обработке запроса:\n{str(e)}"
-        )
+        bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
 
-def main():
-    while True:
-        try:
-            # Enable debug logging
-            import logging
-            logger = telebot.logger
-            telebot.logger.setLevel(logging.DEBUG)
-            
-            # Start polling with a longer timeout and less aggressive polling
-            print("Starting bot...")
-            bot.infinity_polling(timeout=60, long_polling_timeout=60)
-        except Exception as e:
-            print(f"Bot crashed with error: {e}")
-            print("Restarting in 10 seconds...")
-            time.sleep(10)
-
-if __name__ == "__main__":
-    main()
+bot.polling(none_stop=True)
