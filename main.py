@@ -3,7 +3,7 @@ import requests
 import json
 
 # Укажите ваш API-ключ от Новой Почты
-NOVA_POSHTA_API_KEY = ""cb589626abe2488ac0bd2c750419a496""
+NOVA_POSHTA_API_KEY = "cb589626abe2488ac0bd2c750419a496"
 # Укажите ваш токен бота
 TELEGRAM_BOT_TOKEN = "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0"
 
