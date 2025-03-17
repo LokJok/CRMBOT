@@ -1,6 +1,7 @@
 import telebot
 import requests
 import json
+import re
 
 NOVA_POSHTA_API_KEY = "cb589626abe2488ac0bd2c750419a496"
 TELEGRAM_BOT_TOKEN = "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0"
@@ -62,32 +63,60 @@ def get_counterparty_ref(phone, counterparty_property):
         return data['data'][0]['Ref']
     return None
 
+def parse_ttn_data(message_text):
+    """Parse TTN data from message text"""
+    data = {}
+    
+    # Regular expressions for data extraction
+    patterns = {
+        'sender_name': r'Отправитель:\s*(.+)',
+        'sender_phone': r'Телефон отправителя:\s*(\+?\d+)',
+        'sender_city': r'Город отправителя:\s*(.+)',
+        'sender_branch': r'Отделение отправителя:\s*(\d+)',
+        'recipient_name': r'Получатель:\s*(.+)',
+        'recipient_phone': r'Телефон получателя:\s*(\+?\d+)',
+        'recipient_city': r'Город получателя:\s*(.+)',
+        'recipient_branch': r'Отделение получателя:\s*(\d+)',
+        'seats': r'Мест:\s*(\d+)',
+        'weight': r'Вес:\s*(\d+(?:\.\d+)?)',
+        'payer_type': r'Плательщик:\s*(Отправитель|Получатель)',
+        'cost': r'Стоимость:\s*(\d+(?:\.\d+)?)',
+        'cargo_description': r'Описание:\s*(.+)'
+    }
+    
+    for key, pattern in patterns.items():
+        match = re.search(pattern, message_text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            data[key] = match.group(1).strip()
+    
+    return data
+
 def create_ttn(data):
     # Get reference IDs
     sender_city_ref = get_city_ref(data["sender_city"])
     recipient_city_ref = get_city_ref(data["recipient_city"])
     
     if not sender_city_ref or not recipient_city_ref:
-        return {"success": False, "errors": ["City not found"]}
+        return {"success": False, "errors": ["Город не найден"]}
 
     sender_warehouse_ref = get_warehouse_ref(sender_city_ref, data["sender_branch"])
     recipient_warehouse_ref = get_warehouse_ref(recipient_city_ref, data["recipient_branch"])
     
     if not sender_warehouse_ref or not recipient_warehouse_ref:
-        return {"success": False, "errors": ["Warehouse not found"]}
+        return {"success": False, "errors": ["Отделение не найдено"]}
 
     sender_ref = get_counterparty_ref(data["sender_phone"], "Sender")
     recipient_ref = get_counterparty_ref(data["recipient_phone"], "Recipient")
     
     if not sender_ref or not recipient_ref:
-        return {"success": False, "errors": ["Counterparty not found"]}
+        return {"success": False, "errors": ["Контрагент не найден"]}
 
     payload = {
         "apiKey": NOVA_POSHTA_API_KEY,
         "modelName": "InternetDocument",
         "calledMethod": "save",
         "methodProperties": {
-            "PayerType": data["payer_type"],
+            "PayerType": "Recipient" if data["payer_type"].lower() == "получатель" else "Sender",
             "PaymentMethod": "Cash",
             "CargoType": "Cargo",
             "VolumeGeneral": "0.1",
@@ -115,79 +144,104 @@ def create_ttn(data):
 @bot.message_handler(commands=['start'])
 def start(message):
     instructions = """
-Привет! Для создания ТТН отправьте данные в формате:
-    
-Отправитель: Имя
-Телефон отправителя: +380XXXXXXXXX
-Город отправителя: Название
-Отделение отправителя: Номер
+📦 Создание накладной Новой Почты 📦
 
-Получатель: Имя
-Телефон получателя: +380XXXXXXXXX
-Город получателя: Название
-Отделение получателя: Номер
+Для создания ТТН отправьте данные в следующем формате:
 
-Мест: Количество
-Вес: Число кг
-Плательщик: Отправитель/Получатель
-Стоимость: Сумма
-Описание: Текст
+Отправитель: Иван Иванов
+Телефон отправителя: +380501234567
+Город отправителя: Киев
+Отделение отправителя: 1
+
+Получатель: Петр Петров
+Телефон получателя: +380671234567
+Город получателя: Одесса
+Отделение получателя: 2
+
+Мест: 1
+Вес: 2.5
+Плательщик: Получатель
+Стоимость: 500
+Описание: Одежда
+
+❗️ Важно:
+- Все поля обязательны
+- Номер телефона в формате +380XXXXXXXXX
+- Номер отделения указывать цифрами
+- Плательщик: укажите "Отправитель" или "Получатель"
+- Вес указывать в килограммах
+- Стоимость указывать в гривнах
 """
     bot.send_message(message.chat.id, instructions)
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     try:
-        # Here you should parse the message text to extract data
-        # This is a simplified example
-        data = {
-            "sender_name": "Иван Иванов",
-            "sender_phone": "+380501234567",
-            "sender_city": "Киев",
-            "sender_branch": "1",
-            "recipient_name": "Петр Петров",
-            "recipient_phone": "+380671234567",
-            "recipient_city": "Одесса",
-            "recipient_branch": "2",
-            "seats": "1",
-            "weight": "2",
-            "payer_type": "Recipient",
-            "cost": "500",
-            "cargo_description": "Товар"
-        }
-
+        # Parse message text to extract data
+        data = parse_ttn_data(message.text)
+        
         # Validate required fields
         required_fields = [
-            "sender_phone", "sender_city", "sender_branch",
-            "recipient_phone", "recipient_city", "recipient_branch",
-            "seats", "weight", "cost", "cargo_description"
+            "sender_name", "sender_phone", "sender_city", "sender_branch",
+            "recipient_name", "recipient_phone", "recipient_city", "recipient_branch",
+            "seats", "weight", "payer_type", "cost", "cargo_description"
         ]
         
         missing_fields = [field for field in required_fields if not data.get(field)]
         if missing_fields:
+            missing_fields_ru = {
+                "sender_name": "Отправитель",
+                "sender_phone": "Телефон отправителя",
+                "sender_city": "Город отправителя",
+                "sender_branch": "Отделение отправителя",
+                "recipient_name": "Получатель",
+                "recipient_phone": "Телефон получателя",
+                "recipient_city": "Город получателя",
+                "recipient_branch": "Отделение получателя",
+                "seats": "Количество мест",
+                "weight": "Вес",
+                "payer_type": "Плательщик",
+                "cost": "Стоимость",
+                "cargo_description": "Описание"
+            }
+            missing_fields_names = [missing_fields_ru[field] for field in missing_fields]
             bot.send_message(
-                message.chat.id, 
-                f"Не заполнены обязательные поля: {', '.join(missing_fields)}"
+                message.chat.id,
+                f"❌ Не заполнены обязательные поля:\n" + "\n".join(f"- {field}" for field in missing_fields_names)
             )
             return
 
+        # Create TTN
         ttn = create_ttn(data)
         if ttn.get('success'):
-            bot.send_message(
-                message.chat.id, 
-                f"Накладная создана. Номер ТТН: {ttn['data'][0]['IntDocNumber']}"
-            )
+            success_message = f"""
+✅ Накладная успешно создана!
+
+📝 Номер ТТН: {ttn['data'][0]['IntDocNumber']}
+📦 Отправитель: {data['sender_name']}
+📍 Город отправителя: {data['sender_city']}
+🏢 Отделение: {data['sender_branch']}
+
+📦 Получатель: {data['recipient_name']}
+📍 Город получателя: {data['recipient_city']}
+🏢 Отделение: {data['recipient_branch']}
+
+📦 Мест: {data['seats']}
+⚖️ Вес: {data['weight']} кг
+💰 Стоимость: {data['cost']} грн
+"""
+            bot.send_message(message.chat.id, success_message)
         else:
             errors = ttn.get('errors', ['Неизвестная ошибка'])
             bot.send_message(
-                message.chat.id, 
-                f"Ошибка создания ТТН: {', '.join(errors)}"
+                message.chat.id,
+                f"❌ Ошибка создания ТТН:\n" + "\n".join(f"- {error}" for error in errors)
             )
     
     except Exception as e:
         bot.send_message(
-            message.chat.id, 
-            f"Произошла ошибка при обработке запроса: {str(e)}"
+            message.chat.id,
+            f"❌ Произошла ошибка при обработке запроса:\n{str(e)}"
         )
 
 if __name__ == "__main__":
