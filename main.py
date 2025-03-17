@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import telebot
 import requests
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -46,39 +47,44 @@ def create_np_waybill(data):
             "PayerType": "Recipient",
             "Cost": data["amount"],
             "Description": "Святкова скарбничка",
-            "AfterpaymentOnGoodsCost": data["amount"]
+            "AfterpaymentOnGoodsCost": data["transfer"]
         }
     }
     response = requests.post(url, json=payload)
     return response.json()
 
-# Обработчик /start
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    markup = InlineKeyboardMarkup()
-    button1 = InlineKeyboardButton("Накладные, не отправленные", callback_data="pending")
-    button2 = InlineKeyboardButton("Накладные в пути", callback_data="in_transit")
-    markup.add(button1, button2)
-    bot.send_message(message.chat.id, "Привет! Выберите действие:", reply_markup=markup)
-
 @bot.message_handler(func=lambda message: message.chat.id == GROUP_FROM)
 def handle_order(message):
     try:
-        lines = message.text.split('\n')
-        order_data = {
-            "name": lines[0],
-            "phone": lines[1],
-            "city": lines[2],
-            "warehouse": lines[3],
-            "amount": lines[4]
-        }
+        order_data = {}
+        
+        match_name = re.search(r"ФИО:\s*(.+)", message.text)
+        match_phone = re.search(r"Телефон:\s*(.+)", message.text)
+        match_city = re.search(r"Мiсто:\s*(.+)", message.text)
+        match_warehouse = re.search(r"Номер вiддiлення:\s*(\d+)", message.text)
+        match_cost = re.search(r"Оцiночна вартiсть:\s*(\d+)", message.text)
+        match_transfer = re.search(r"Грошовий переказ:\s*(\d+)", message.text)
+
+        if not all([match_name, match_phone, match_city, match_warehouse, match_cost, match_transfer]):
+            bot.send_message(message.chat.id, "❌ Некорректная форма заявки. Пожалуйста, укажите все данные правильно.")
+            return
+
+        order_data["name"] = match_name.group(1).strip()
+        order_data["phone"] = match_phone.group(1).strip()
+        order_data["city"] = match_city.group(1).strip()
+        order_data["warehouse"] = match_warehouse.group(1).strip()
+        order_data["amount"] = match_cost.group(1).strip()
+        order_data["transfer"] = match_transfer.group(1).strip()
+
         response = create_np_waybill(order_data)
+        
         if response.get("success"):
             ttn = response["data"][0]["IntDocNumber"]
             created_ttns.append({"ttn": ttn, "amount": order_data["amount"]})
-            bot.send_message(GROUP_TTN, f"🚛 Создана ТТН: {ttn}\nСумма: {order_data['amount']} грн")
+            bot.send_message(GROUP_TTN, f"🚛 Создана ТТН: {ttn}\nСумма: {order_data['amount']} грн\nГрошовий переказ: {order_data['transfer']} грн")
         else:
             bot.send_message(GROUP_TTN, "❌ Ошибка создания ТТН")
+    
     except Exception as e:
         bot.send_message(GROUP_TTN, f"❌ Ошибка обработки: {str(e)}")
 
@@ -100,12 +106,9 @@ def show_sent_ttns(message):
         ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in sent_ttns])
         bot.send_message(message.chat.id, f"🚀 В пути:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
 
-# Обработчик нажатий на кнопки
-@bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
-    if call.data == "pending":
-        show_pending_ttns(call.message)
-    elif call.data == "in_transit":
-        show_sent_ttns(call.message)
+@bot.message_handler(commands=['start'])
+def start_command(message):
+    bot.send_message(message.chat.id, "👋 Привет! Я бот для создания накладных Новой Почты. Отправьте заявку в формате:")
+    bot.send_message(message.chat.id, "ФИО: Иван Иванов\nТелефон: +380501234567\nМiсто: Київ\nНомер вiддiлення: 1\nОцiночна вартiсть: 250\nГрошовий переказ: 250")
 
 bot.polling(none_stop=True)
