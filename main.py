@@ -44,13 +44,16 @@ def create_np_waybill(data):
             "ServiceType": "WarehouseWarehouse",
             "PaymentMethod": "Cash",
             "PayerType": "Recipient",
-            "Cost": data["amount"],
+            "Cost": str(data["amount"]),
             "Description": "Святкова скарбничка",
-            "AfterpaymentOnGoodsCost": data["transfer"]
+            "AfterpaymentOnGoodsCost": str(data["transfer"])
         }
     }
     response = requests.post(url, json=payload)
-    return response.json()
+    response_data = response.json()
+    if response_data.get("success"):
+        return response_data["data"][0]["IntDocNumber"]
+    return None
 
 @bot.message_handler(commands=['start'])
 def start_message(message):
@@ -68,12 +71,11 @@ def handle_order(message):
             "phone": lines[1].split(": ")[1],
             "city": lines[2].split(": ")[1],
             "warehouse": lines[3].split(": ")[1],
-            "amount": lines[4].split(": ")[1],
-            "transfer": lines[5].split(": ")[1]
+            "amount": float(lines[4].split(": ")[1]),
+            "transfer": float(lines[5].split(": ")[1])
         }
-        response = create_np_waybill(order_data)
-        if response.get("success"):
-            ttn = response["data"][0]["IntDocNumber"]
+        ttn = create_np_waybill(order_data)
+        if ttn:
             created_ttns.append({"ttn": ttn, "amount": order_data["amount"]})
             bot.send_message(GROUP_TTN, f"🚛 Создана ТТН: {ttn}\nСумма: {order_data['amount']} грн")
         else:
@@ -86,7 +88,7 @@ def show_pending_ttns(call):
     if not created_ttns:
         bot.send_message(call.message.chat.id, "📦 Нет неотправленных накладных")
     else:
-        total = sum(float(x["amount"]) for x in created_ttns)
+        total = sum(x["amount"] for x in created_ttns)
         ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in created_ttns])
         bot.send_message(call.message.chat.id, f"📌 Неотправленные ТТН:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
 
@@ -95,7 +97,7 @@ def show_sent_ttns(call):
     if not sent_ttns:
         bot.send_message(call.message.chat.id, "🚚 Нет отправленных накладных")
     else:
-        total = sum(float(x["amount"]) for x in sent_ttns)
+        total = sum(x["amount"] for x in sent_ttns)
         ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in sent_ttns])
         bot.send_message(call.message.chat.id, f"🚀 В пути:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
 
