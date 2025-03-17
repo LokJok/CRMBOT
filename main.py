@@ -1,6 +1,5 @@
 import os
 import json
-import re
 import telebot
 import requests
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -53,62 +52,51 @@ def create_np_waybill(data):
     response = requests.post(url, json=payload)
     return response.json()
 
+@bot.message_handler(commands=['start'])
+def start(message):
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("Накладные, не отправленные", callback_data="pending"))
+    markup.add(InlineKeyboardButton("Накладные в пути", callback_data="in_transit"))
+    bot.send_message(message.chat.id, "Добро пожаловать! Выберите действие:", reply_markup=markup)
+
 @bot.message_handler(func=lambda message: message.chat.id == GROUP_FROM)
 def handle_order(message):
     try:
-        order_data = {}
-        
-        match_name = re.search(r"ФИО:\s*(.+)", message.text)
-        match_phone = re.search(r"Телефон:\s*(.+)", message.text)
-        match_city = re.search(r"Мiсто:\s*(.+)", message.text)
-        match_warehouse = re.search(r"Номер вiддiлення:\s*(\d+)", message.text)
-        match_cost = re.search(r"Оцiночна вартiсть:\s*(\d+)", message.text)
-        match_transfer = re.search(r"Грошовий переказ:\s*(\d+)", message.text)
-
-        if not all([match_name, match_phone, match_city, match_warehouse, match_cost, match_transfer]):
-            bot.send_message(message.chat.id, "❌ Некорректная форма заявки. Пожалуйста, укажите все данные правильно.")
-            return
-
-        order_data["name"] = match_name.group(1).strip()
-        order_data["phone"] = match_phone.group(1).strip()
-        order_data["city"] = match_city.group(1).strip()
-        order_data["warehouse"] = match_warehouse.group(1).strip()
-        order_data["amount"] = match_cost.group(1).strip()
-        order_data["transfer"] = match_transfer.group(1).strip()
-
+        lines = message.text.split('\n')
+        order_data = {
+            "name": lines[0].replace("ФИО: ", ""),
+            "phone": lines[1].replace("Телефон: ", ""),
+            "city": lines[2].replace("Мiсто: ", ""),
+            "warehouse": lines[3].replace("Номер вiддiлення: ", ""),
+            "amount": lines[4].replace("Оцiночна вартiсть: ", ""),
+            "transfer": lines[5].replace("Грошовий переказ: ", "")
+        }
         response = create_np_waybill(order_data)
-        
         if response.get("success"):
             ttn = response["data"][0]["IntDocNumber"]
             created_ttns.append({"ttn": ttn, "amount": order_data["amount"]})
-            bot.send_message(GROUP_TTN, f"🚛 Создана ТТН: {ttn}\nСумма: {order_data['amount']} грн\nГрошовий переказ: {order_data['transfer']} грн")
+            bot.send_message(GROUP_TTN, f"🚛 Создана ТТН: {ttn}\nСумма: {order_data['amount']} грн")
         else:
             bot.send_message(GROUP_TTN, "❌ Ошибка создания ТТН")
-    
     except Exception as e:
         bot.send_message(GROUP_TTN, f"❌ Ошибка обработки: {str(e)}")
 
-@bot.message_handler(commands=['pending'])
-def show_pending_ttns(message):
+@bot.callback_query_handler(func=lambda call: call.data == "pending")
+def show_pending_ttns(call):
     if not created_ttns:
-        bot.send_message(message.chat.id, "📦 Нет неотправленных накладных")
+        bot.send_message(call.message.chat.id, "📦 Нет неотправленных накладных")
     else:
         total = sum(float(x["amount"]) for x in created_ttns)
         ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in created_ttns])
-        bot.send_message(message.chat.id, f"📌 Неотправленные ТТН:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
+        bot.send_message(call.message.chat.id, f"📌 Неотправленные ТТН:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
 
-@bot.message_handler(commands=['in_transit'])
-def show_sent_ttns(message):
+@bot.callback_query_handler(func=lambda call: call.data == "in_transit")
+def show_sent_ttns(call):
     if not sent_ttns:
-        bot.send_message(message.chat.id, "🚚 Нет отправленных накладных")
+        bot.send_message(call.message.chat.id, "🚚 Нет отправленных накладных")
     else:
         total = sum(float(x["amount"]) for x in sent_ttns)
         ttn_list = "\n".join([f"{x['ttn']} – {x['amount']} грн" for x in sent_ttns])
-        bot.send_message(message.chat.id, f"🚀 В пути:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
-
-@bot.message_handler(commands=['start'])
-def start_command(message):
-    bot.send_message(message.chat.id, "👋 Привет! Я бот для создания накладных Новой Почты. Отправьте заявку в формате:")
-    bot.send_message(message.chat.id, "ФИО: Иван Иванов\nТелефон: +380501234567\nМiсто: Київ\nНомер вiддiлення: 1\nОцiночна вартiсть: 250\nГрошовий переказ: 250")
+        bot.send_message(call.message.chat.id, f"🚀 В пути:\n{ttn_list}\n\n💰 Общая сумма: {total} грн")
 
 bot.polling(none_stop=True)
