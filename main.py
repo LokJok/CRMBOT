@@ -25,8 +25,8 @@ def create_tracking_number(message):
         }
 
         # Пример запроса на создание ТТН (замените на реальный API)
-        response = requests.post('https://api.novaposhta.ua/v2.0/json/
-', data=data)
+        response = requests.post('https://api.novaposhta.ua/v2.0/json/', data=data)
+
 
         # Проверка успешности запроса
         if response.status_code == 200:
