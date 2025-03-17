@@ -2,11 +2,16 @@ import telebot
 import requests
 import json
 import re
+import time
+from telebot.handler_backends import State, StatesGroup
+from telebot.storage import StateMemoryStorage
 
 NOVA_POSHTA_API_KEY = "cb589626abe2488ac0bd2c750419a496"
 TELEGRAM_BOT_TOKEN = "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0"
 
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+# Initialize bot with state storage
+state_storage = StateMemoryStorage()
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, state_storage=state_storage)
 
 def get_city_ref(city_name):
     """Get city reference by name"""
@@ -244,5 +249,21 @@ def handle_message(message):
             f"❌ Произошла ошибка при обработке запроса:\n{str(e)}"
         )
 
+def main():
+    while True:
+        try:
+            # Enable debug logging
+            import logging
+            logger = telebot.logger
+            telebot.logger.setLevel(logging.DEBUG)
+            
+            # Start polling with a longer timeout and less aggressive polling
+            print("Starting bot...")
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Bot crashed with error: {e}")
+            print("Restarting in 10 seconds...")
+            time.sleep(10)
+
 if __name__ == "__main__":
-    bot.polling()
+    main()
