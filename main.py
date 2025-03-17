@@ -42,6 +42,10 @@ def create_ttn(data):
     }
 
     response = requests.post(url, json=payload)
+    
+    # Логируем полный ответ от API Новой Почты для анализа
+    print("API Response:", response.json())  # Это поможет понять, в чем ошибка
+    
     return response.json()
 
 # Обработчик команд
