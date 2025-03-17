@@ -53,23 +53,23 @@ def create_np_waybill(data):
     return response.json()
 
 @bot.message_handler(commands=['start'])
-def start(message):
+def start_message(message):
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("Накладные, не отправленные", callback_data="pending"))
-    markup.add(InlineKeyboardButton("Накладные в пути", callback_data="in_transit"))
-    bot.send_message(message.chat.id, "Добро пожаловать! Выберите действие:", reply_markup=markup)
+    markup.add(InlineKeyboardButton("📦 Неотправленные накладные", callback_data="pending"))
+    markup.add(InlineKeyboardButton("🚚 Накладные в пути", callback_data="in_transit"))
+    bot.send_message(message.chat.id, "Выберите действие:", reply_markup=markup)
 
 @bot.message_handler(func=lambda message: message.chat.id == GROUP_FROM)
 def handle_order(message):
     try:
         lines = message.text.split('\n')
         order_data = {
-            "name": lines[0].replace("ФИО: ", ""),
-            "phone": lines[1].replace("Телефон: ", ""),
-            "city": lines[2].replace("Мiсто: ", ""),
-            "warehouse": lines[3].replace("Номер вiддiлення: ", ""),
-            "amount": lines[4].replace("Оцiночна вартiсть: ", ""),
-            "transfer": lines[5].replace("Грошовий переказ: ", "")
+            "name": lines[0].split(": ")[1],
+            "phone": lines[1].split(": ")[1],
+            "city": lines[2].split(": ")[1],
+            "warehouse": lines[3].split(": ")[1],
+            "amount": lines[4].split(": ")[1],
+            "transfer": lines[5].split(": ")[1]
         }
         response = create_np_waybill(order_data)
         if response.get("success"):
