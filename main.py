@@ -224,8 +224,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(parsed_data)
 
 def main():
-    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-    NOVA_POSHTA_API_KEY = os.getenv("NOVA_POSHTA_API_KEY")
+    TELEGRAM_TOKEN = os.getenv("7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0")
+    NOVA_POSHTA_API_KEY = os.getenv("cb589626abe2488ac0bd2c750419a496")
 
     if not TELEGRAM_TOKEN or not NOVA_POSHTA_API_KEY:
         raise ValueError("Необходимо указать TELEGRAM_TOKEN и NOVA_POSHTA_API_KEY в переменных окружения")
