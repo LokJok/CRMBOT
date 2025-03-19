@@ -2,6 +2,7 @@ import requests
 import re
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import os
 
 class NovaPoshtaBot:
     def __init__(self, api_key):
@@ -16,7 +17,6 @@ class NovaPoshtaBot:
                 key, value = line.split(': ', 1)
                 data[key] = value
             
-            # Проверка формата телефона
             phone_pattern = r"^\+?380[0-9]{9}$"
             sender_phone = data["Отправитель"].split(',')[1].strip()
             recipient_phone = data["Получатель"].split(',')[1].strip()
@@ -27,9 +27,9 @@ class NovaPoshtaBot:
                 return "Ошибка: Неверный формат телефона получателя. Используйте формат 380XXXXXXXXX"
 
             return {
-                "sender_name": data["Отправитель"].split(',')[0],
+                "sender_name": data["Отправитель"].split(',')[0].strip(),
                 "sender_phone": sender_phone,
-                "recipient_name": data["Получатель"].split(',')[0],
+                "recipient_name": data["Получатель"].split(',')[0].strip(),
                 "recipient_phone": recipient_phone,
                 "sender_city": data["Город отправителя"],
                 "recipient_city": data["Город получателя"],
@@ -41,8 +41,50 @@ class NovaPoshtaBot:
         except Exception as e:
             return f"Ошибка парсинга сообщения: {str(e)}"
 
+    def create_counterparty(self, name, phone, is_sender=True):
+        payload = {
+            "apiKey": self.api_key,
+            "modelName": "Counterparty",
+            "calledMethod": "save",
+            "methodProperties": {
+                "FirstName": name.split()[0],
+                "MiddleName": name.split()[1] if len(name.split()) > 1 else "",
+                "LastName": name.split()[2] if len(name.split()) > 2 else "",
+                "Phone": phone,
+                "CounterpartyType": "PrivatePerson",
+                "CounterpartyProperty": "Sender" if is_sender else "Recipient"
+            }
+        }
+        try:
+            response = requests.post(self.base_url, json=payload, timeout=10)
+            response.raise_for_status()
+            result = response.json()
+            if result["success"]:
+                return result["data"][0]["Ref"], result["data"][0]["ContactPerson"]["data"][0]["Ref"]
+            return None, None
+        except requests.exceptions.RequestException as e:
+            return None, None
+
     def create_ttn(self, parsed_data):
         try:
+            # Создаем или получаем контрагентов
+            sender_ref, contact_sender_ref = self.create_counterparty(
+                parsed_data["sender_name"], 
+                parsed_data["sender_phone"], 
+                is_sender=True
+            )
+            if not sender_ref or not contact_sender_ref:
+                return "Ошибка: Не удалось создать отправителя"
+
+            recipient_ref, contact_recipient_ref = self.create_counterparty(
+                parsed_data["recipient_name"], 
+                parsed_data["recipient_phone"], 
+                is_sender=False
+            )
+            if not recipient_ref or not contact_recipient_ref:
+                return "Ошибка: Не удалось создать получателя"
+
+            # Получаем Ref городов и отделений
             sender_city_ref = self.get_city_ref(parsed_data["sender_city"])
             if not sender_city_ref:
                 return "Ошибка: Не найден город отправителя"
@@ -51,17 +93,11 @@ class NovaPoshtaBot:
             if not recipient_city_ref:
                 return "Ошибка: Не найден город получателя"
             
-            sender_warehouse_ref = self.get_warehouse_ref(
-                sender_city_ref, 
-                parsed_data["sender_warehouse"]
-            )
+            sender_warehouse_ref = self.get_warehouse_ref(sender_city_ref, parsed_data["sender_warehouse"])
             if not sender_warehouse_ref:
                 return "Ошибка: Не найдено отделение отправителя"
                 
-            recipient_warehouse_ref = self.get_warehouse_ref(
-                recipient_city_ref, 
-                parsed_data["recipient_warehouse"]
-            )
+            recipient_warehouse_ref = self.get_warehouse_ref(recipient_city_ref, parsed_data["recipient_warehouse"])
             if not recipient_warehouse_ref:
                 return "Ошибка: Не найдено отделение получателя"
 
@@ -78,23 +114,19 @@ class NovaPoshtaBot:
                     "ServiceType": "WarehouseWarehouse",
                     "SeatsAmount": "1",
                     "Description": parsed_data["description"],
-                    "Sender": {
-                        "Description": parsed_data["sender_name"],
-                        "Phone": parsed_data["sender_phone"]
-                    },
-                    "Recipient": {
-                        "Description": parsed_data["recipient_name"],
-                        "Phone": parsed_data["recipient_phone"]
-                    },
-                    "CitySender": sender_city_ref,
-                    "CityRecipient": recipient_city_ref,
+                    "Sender": sender_ref,
                     "SenderAddress": sender_warehouse_ref,
-                    "RecipientAddress": recipient_warehouse_ref
+                    "ContactSender": contact_sender_ref,
+                    "SendersPhone": parsed_data["sender_phone"],
+                    "Recipient": recipient_ref,
+                    "RecipientAddress": recipient_warehouse_ref,
+                    "ContactRecipient": contact_recipient_ref,
+                    "RecipientsPhone": parsed_data["recipient_phone"]
                 }
             }
 
             response = requests.post(self.base_url, json=payload, timeout=10)
-            response.raise_for_status()  # Проверка на HTTP ошибки
+            response.raise_for_status()
             result = response.json()
             
             if result["success"]:
@@ -192,25 +224,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(parsed_data)
 
 def main():
-    # Замените на свои ключи
-    TELEGRAM_TOKEN = "7840803477:AAFql7Ppyk9bQ8RQI7uoSLnEFvahRpjQkV0"
-    NOVA_POSHTA_API_KEY = "cb589626abe2488ac0bd2c750419a496"
+    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+    NOVA_POSHTA_API_KEY = os.getenv("NOVA_POSHTA_API_KEY")
 
-    # Создаем экземпляр бота Новой Почты
+    if not TELEGRAM_TOKEN or not NOVA_POSHTA_API_KEY:
+        raise ValueError("Необходимо указать TELEGRAM_TOKEN и NOVA_POSHTA_API_KEY в переменных окружения")
+
     nova_bot = NovaPoshtaBot(NOVA_POSHTA_API_KEY)
-
-    # Создаем приложение Telegram
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-    # Сохраняем экземпляр NovaPoshtaBot в bot_data
     application.bot_data["nova_bot"] = nova_bot
 
-    # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Запускаем бота
     application.run_polling()
 
 if __name__ == "__main__":
